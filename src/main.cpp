@@ -1,10 +1,25 @@
 #include <stdio.h>
-#include "snmpGet.h"
+#include "../inc/snmpGet.h"
 #include <pqxx/pqxx>
 #include <iostream>
+#include <chrono>
+#include <thread>
 
 using namespace std;
 using namespace pqxx;
+using namespace this_thread;
+using namespace chrono;
+
+int greenInt ;
+int yellowInt;
+int redInt   ;
+
+int greenPhase[16];
+int yellowPhase[16];
+int redPhase[16];
+
+bool pronto = 0;
+int id;
 
 class Log
 {
@@ -96,7 +111,7 @@ void insert(const std::string &__table, const std::string &__column, int value, 
   C.disconnect(); 
 }
 
-void get(const std::string &__table)
+void getPhases(const std::string &__table)
 {
   Log log;
 
@@ -124,65 +139,33 @@ void get(const std::string &__table)
   {
     if(c[3].as<int>())
     {
+      id = c[0].as<int>();
+      pronto = 1;
+
       char ipS[30];
       sprintf(ipS, "%s:%d", c[2].as<string>().c_str(), 161);
 
-      int greenInt  =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.4.1", ipS);
-      int yellowInt =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.3.1", ipS);
-      int redInt    =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.2.1", ipS);
+      greenInt  =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.4.1", ipS);
+      yellowInt =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.3.1", ipS);
+      redInt    =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.2.1", ipS);
 
-      int greenPhase[16];
-      int yellowPhase[16];
-      int redPhase[16];
       for(int i = 0; i<15; i++)
         greenPhase[i] = (greenInt>>i)&1;
       for(int i = 0; i<15; i++)
         yellowPhase[i] = (yellowInt>>i)&1;
       for(int i = 0; i<15; i++)
         redPhase[i] = (redInt>>i)&1;
-
-      char comando[50];
-
-      sprintf(comando, "UPDATE PHASES set RED = %d where ID=%d", redInt, c[0].as<int>());
-      N.exec(comando);  
-      sprintf(comando, "UPDATE PHASES set GREEN = %d where ID=%d", greenInt, c[0].as<int>());
-      N.exec(comando);
-      sprintf(comando, "UPDATE PHASES set YELLOW = %d where ID=%d", yellowInt, c[0].as<int>());
-      N.exec(comando);
-
+    
+      update("PHASES", "RED", redInt, id);
+      update("PHASES", "GREEN", greenInt, id);
+      update("PHASES", "YELLOW", yellowInt, id);
     }
   }
-  
 }
 
 int main()
 {
-  connection C("dbname = teste user = postgres password = docker \
-    hostaddr = 127.0.0.1 port = 5432");
-
-  if (C.is_open())
-    printf("Banco de dados aberto com sucesso: %s\r\n", C.dbname());
-  else {
-    printf("Não foi possível abrir o banco de dados\r\n");
-  }
-
-  char * sql;
-
-  update("PHASES", "GREEN", 20, 5);
-  printf("Retorno : %s\r\n", sql);
-
-  work W(C);
-
-  sql = "CREATE TABLE SEMAPHORE("  \
-  "ID INT PRIMARY KEY     NOT NULL," \
-  "NAME           TEXT    NOT NULL," \
-  "IP             TEXT," \
-  "SEMEX          INT     NOT NULL DEFAULT 1);";
-
-  W.exec(sql);
-  W.commit();
-  printf("Valores adicionados\r\n");
-
-  C.disconnect(); 
-  
+ while (1)
+  getPhases("SEMAPHORE");
+  sleep_for(milliseconds(500));
 }

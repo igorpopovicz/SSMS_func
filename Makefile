@@ -12,11 +12,11 @@ DLFLAGS=-fPIC -shared
 
 all: $(TARGETS)
 
-snmpGet: snmpGet.o
-	$(CC) $(CFLAGS) $(DLFLAGS) -c -o $@ snmpGet.c
+snmpGet: inc/snmpGet.o
+	$(CC) $(CFLAGS) $(DLFLAGS) -c -o $@ inc/snmpGet.c
 
-main: main.o
-	$(CC) -o $@ $@.o snmpGet.o $(BUILDLIBS) -lpqxx -lpq
+main: src/main.o
+	$(CC) -o $@ src/$@.o inc/snmpGet.o $(BUILDLIBS) -lpqxx -lpq
 
 clean:
 	rm -f -- *.o $(TARGETS)
