@@ -2,24 +2,27 @@
 #include "../inc/snmpGet.h"
 #include <pqxx/pqxx>
 #include <iostream>
-#include <chrono>
-#include <thread>
 
 using namespace std;
 using namespace pqxx;
-using namespace this_thread;
-using namespace chrono;
 
-int greenInt ;
+int greenInt;
 int yellowInt;
-int redInt   ;
+int redInt;
+int cycleTimer;
+int syncTimer;
+int nextFase;
+int pedestrianInt;
 
-int greenPhase[16];
-int yellowPhase[16];
-int redPhase[16];
+int greenPhase[17];
+int yellowPhase[17];
+int redPhase[17];
+int pedestrianPhase[17];
+int phaseActive[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+int phaseActiveDecimal = 0;
 
-bool pronto = 0;
-int id;
+bool semex = 0;
+int  unity;
 
 class Log
 {
@@ -74,7 +77,7 @@ void update(const std::string &__table, const std::string &__column, int value, 
   }
   
   char buff[100];
-  sprintf(buff, "UPDATE %s set %s = %d where ID=%d", __table.c_str(), __column.c_str(), value, id);
+  sprintf(buff, "UPDATE %s set %s = %d where unity=%d", __table.c_str(), __column.c_str(), value, id);
 
   nontransaction N(C);
   N.exec(buff);
@@ -137,28 +140,87 @@ void getPhases(const std::string &__table)
 
   for(result::const_iterator c = R.begin(); c != R.end(); ++c)
   {
-    if(c[3].as<int>())
+    semex = c[1].as<bool>();
+
+    if(semex)
     {
-      id = c[0].as<int>();
-      pronto = 1;
+      unity = c[5].as<int>();
 
       char ipS[30];
-      sprintf(ipS, "%s:%d", c[2].as<string>().c_str(), 161);
+      sprintf(ipS, "192.168.%d.23:%d", unity, 161);
 
       greenInt  =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.4.1", ipS);
       yellowInt =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.3.1", ipS);
       redInt    =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.2.1", ipS);
 
-      for(int i = 0; i<15; i++)
+      cycleTimer = snmpGet(".1.3.6.1.4.1.1206.4.2.1.4.12.0", ipS);
+      syncTimer  = snmpGet(".1.3.6.1.4.1.1206.4.2.1.4.13.0", ipS);
+      nextFase   = snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.11.1", ipS);
+
+      pedestrianInt = snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.7.1", ipS);
+
+      for(int i = 1; i<16; i++)
+      {
+        char oidBuff[38];
+        sprintf(oidBuff, ".1.3.6.1.4.1.1206.4.2.1.1.2.1.6.%d", i);
+        if(int x = snmpGet(oidBuff, ipS) > 1)
+          phaseActive[i] = 1;
+        else
+          phaseActive[i] = 0;
+      }
+
+      for(int i = 15; i>0; i--)
+      {
+        phaseActiveDecimal = phaseActiveDecimal * 2 + phaseActive[i];
+      }
+
+      update("locstatussmf", "fase_ativa", phaseActiveDecimal, unity);
+      phaseActiveDecimal = 0;
+
+      for(int i = 1; i<16; i++)
+      {
         greenPhase[i] = (greenInt>>i)&1;
-      for(int i = 0; i<15; i++)
+        if(greenPhase[i] == 1)
+        {
+          char faseBuff[6];
+          sprintf(faseBuff, "fase%d", i);
+          update("locstatussmf", faseBuff, 0, unity);
+        }
+      }
+
+      for(int i = 1; i<16; i++)
+      {
         yellowPhase[i] = (yellowInt>>i)&1;
-      for(int i = 0; i<15; i++)
+        if(yellowPhase[i] == 1)
+        {
+          char faseBuff[6];
+          sprintf(faseBuff, "fase%d", i);
+          update("locstatussmf", faseBuff, 1, unity);
+        }
+      }
+      
+      for(int i = 1; i<16; i++)
+      {
         redPhase[i] = (redInt>>i)&1;
-    
-      update("PHASES", "RED", redInt, id);
-      update("PHASES", "GREEN", greenInt, id);
-      update("PHASES", "YELLOW", yellowInt, id);
+        if(redPhase[i] == 1)
+        {
+          char faseBuff[6];
+          sprintf(faseBuff, "fase%d", i);
+          update("locstatussmf", faseBuff, 2, unity);
+        }
+      }
+
+      for(int i = 1; i<16; i++)
+      {
+        pedestrianPhase[i] = (pedestrianInt>>i)&1;
+        char faseBuff[7];
+        sprintf(faseBuff, "fasep%d", i);
+        update("locstatussmf", faseBuff, pedestrianPhase[i], unity);
+      }
+        
+      update("locstatussmf", "tp_ciclo", cycleTimer, unity);
+      update("locstatussmf", "tp_sync", syncTimer, unity);
+      update("locstatussmf", "next_fase", nextFase, unity);
     }
   }
 }
@@ -166,6 +228,5 @@ void getPhases(const std::string &__table)
 int main()
 {
  while (1)
-  getPhases("SEMAPHORE");
-  sleep_for(milliseconds(500));
+  getPhases("locstatussmf");
 }
