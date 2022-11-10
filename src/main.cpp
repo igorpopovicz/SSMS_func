@@ -6,7 +6,7 @@
 using namespace std;
 using namespace pqxx;
 
-#define DB "dbname = ssms user = ssms password = ssms \
+#define DB "dbname = teste user = postgres password = docker \
   hostaddr = 127.0.0.1 port = 5432"
 #define TABLE "loc_status_smf"  
 
@@ -77,6 +77,39 @@ public:
             std::cout << "[INFO]:" << message << std::endl;
     }
 };
+
+void LogErr(const std::string &__table, int __unity)
+{
+  Log log;
+
+  log.SetLevel(log.LogLevelError);
+
+  connection C(DB);
+
+  char buff[100];
+  sprintf(buff, "SELECT * where unity=%d from %s", __unity, __table.c_str());
+  
+  nontransaction N(C);
+
+  result R( N.exec( buff ));
+
+  bool error = 0;
+  char ubuff[100];
+  for(result::const_iterator c = R.begin(); c != R.end(); ++c)
+  {
+    if(c[6].as<int>() == 0)
+      sprintf(ubuff, "UPDATE %s set STATUS_MONIT = 1 where unity=%d", __table.c_str(), __unity);
+    else if(c[6].as<int>() == 1)
+      sprintf(ubuff, "UPDATE %s set STATUS_MONIT = 2 where unity=%d", __table.c_str(), __unity);
+    else
+      return;
+  }  
+
+  N.exec(ubuff);
+  log.Info("UPDATE realizado");
+
+  C.disconnect(); 
+}
 
 void update(const std::string &__table, const std::string &__column, int value, int id)
 {
@@ -192,26 +225,66 @@ void getPhases(const std::string &__table)
       unity = c[5].as<int>();
 
       char ipS[30];
+      char ubuff[100];
       sprintf(ipS, "192.168.%d.23:%d", unity, 161);
 
       greenInt  =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.4.1", ipS);
+      if(!greenInt)
+        LogErr(TABLE, unity);
+      else
+      {
+        sprintf(ubuff, "UPDATE %s set STATUS_MONIT = 0 where unity=%d", TABLE, unity);
+        N.exec(ubuff);
+      }
+      
       yellowInt =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.3.1", ipS);
+      if(!yellowInt)
+        LogErr(TABLE, unity);
+      
       redInt    =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.2.1", ipS);
-
+      if(!redInt)
+        LogErr(TABLE, unity);
+      
       overlapRedInt    =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.9.4.1.2.1", ipS);
+      if(!overlapRedInt)
+        LogErr(TABLE, unity);      
+      
       overlapYellowInt =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.9.4.1.3.1", ipS);
+      if(!overlapYellowInt)
+        LogErr(TABLE, unity);      
+      
       overlapGreenInt  =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.9.4.1.4.1", ipS);
-
+      if(!overlapGreenInt)
+        LogErr(TABLE, unity);
+      
       overlapPedRedInt    =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.9.4.1.2.1", ipS);
+      if(!overlapPedRedInt)
+        LogErr(TABLE, unity);
+      
       overlapPedYellowInt =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.9.4.1.3.1", ipS);
+      if(!overlapPedYellowInt)
+        LogErr(TABLE, unity);      
+      
       overlapPedGreenInt  =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.9.4.1.4.1", ipS);      
-
+      if(!overlapPedGreenInt)
+        LogErr(TABLE, unity);
+      
       cycleTimer = snmpGet(".1.3.6.1.4.1.1206.4.2.1.4.12.0", ipS);
+      if(!cycleTimer)
+        LogErr(TABLE, unity);      
+      
       syncTimer  = snmpGet(".1.3.6.1.4.1.1206.4.2.1.4.13.0", ipS);
+      if(!syncTimer)
+        LogErr(TABLE, unity);      
+      
       nextFaseInt   = snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.11.1", ipS);
-
+      if(!nextFaseInt)
+        LogErr(TABLE, unity);
+      
       pedestrianInt = snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.7.1", ipS);
-
+      if(!pedestrianInt)
+        LogErr(TABLE, unity);
+      
       string nextFaseString;
       for(int i = 0; i<=15; i++)
       {

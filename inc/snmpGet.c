@@ -64,11 +64,17 @@ int snmpGet(char *oid_string, char *ipPort_string)
     }else {
 
       if (status == STAT_SUCCESS)
+      {
         fprintf(stderr, "Error in packet\nReason: %s\n",
         snmp_errstring(response->errstat));
+        return -1;
+      }
       else if (status == STAT_TIMEOUT)
+      {
         fprintf(stderr, "Timeout: No response from %s.\n",
         session.peername);
+        return -1;
+      }
       else
         snmp_sess_perror("snmpdemoapp", ss);
 
