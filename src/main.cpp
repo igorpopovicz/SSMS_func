@@ -2,30 +2,29 @@
 #include "../inc/snmpGet.h"
 #include <pqxx/pqxx>
 #include <iostream>
+#include <ctime>
+
 
 using namespace std;
 using namespace pqxx;
 
 #define DB "dbname = teste user = postgres password = docker \
   hostaddr = 127.0.0.1 port = 5432"
-#define TABLE "loc_status_smf"  
+#define TABLE "loc_status_smf"
 
 int greenInt;
-int yellowInt;
 int redInt;
 int cycleTimer;
+int yellowInt;
 int syncTimer;
 int nextFaseInt;
 int pedestrianInt;
-
 int overlapGreenInt;
 int overlapYellowInt;
 int overlapRedInt;
-
 int overlapPedGreenInt;
 int overlapPedYellowInt;
 int overlapPedRedInt;
-
 int nextFase[17];
 int greenPhase[17];
 int yellowPhase[17];
@@ -38,10 +37,13 @@ int overlapPedYellowPhase[17];
 int overlapPedRedPhase[17];
 int pedestrianPhase[17];
 int phaseActive[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-int phaseActiveDecimal = 0;
+int phaseActiveDecimal;
 
 bool semex = 0;
 int  unity;
+
+connection C(DB);
+nontransaction N(C);
 
 class Log
 {
@@ -78,54 +80,9 @@ public:
     }
 };
 
-void LogErr(const std::string &__table, int __unity)
-{
-  Log log;
-
-  log.SetLevel(log.LogLevelError);
-
-  connection C(DB);
-
-  char buff[100];
-  sprintf(buff, "SELECT * where unity=%d from %s", __unity, __table.c_str());
-  
-  nontransaction N(C);
-
-  result R( N.exec( buff ));
-
-  bool error = 0;
-  char ubuff[100];
-  for(result::const_iterator c = R.begin(); c != R.end(); ++c)
-  {
-    if(c[6].as<int>() == 0)
-      sprintf(ubuff, "UPDATE %s set STATUS_MONIT = 1 where unity=%d", __table.c_str(), __unity);
-    else if(c[6].as<int>() == 1)
-      sprintf(ubuff, "UPDATE %s set STATUS_MONIT = 2 where unity=%d", __table.c_str(), __unity);
-    else
-      return;
-  }  
-
-  N.exec(ubuff);
-  log.Info("UPDATE realizado");
-
-  C.disconnect(); 
-}
 
 void update(const std::string &__table, const std::string &__column, int value, int id)
 {
-  Log log;
-
-  log.SetLevel(log.LogLevelError);
-
-  connection C(DB);
-
-  if (C.is_open()){
-    log.Info("Banco de dados aberto com sucesso");
-  }
-  else {
-    log.Error("Não foi possível abrir o banco de dados");
-    return;
-  }
   
   char buff[100];
   if(value == 999)
@@ -133,91 +90,87 @@ void update(const std::string &__table, const std::string &__column, int value, 
   else
     sprintf(buff, "UPDATE %s set %s = %d where unity=%d", __table.c_str(), __column.c_str(), value, id);
 
-  nontransaction N(C);
   N.exec(buff);
-  log.Info("UPDATE realizado");
-
-  C.disconnect(); 
 }
 
 void updatechar(const std::string &__table, const std::string &__column, const std::string &__value, int id)
 {
-  Log log;
-
-  log.SetLevel(log.LogLevelError);
-
-  connection C(DB);
-
-  if (C.is_open()){
-    log.Info("Banco de dados aberto com sucesso");
-  }
-  else {
-    log.Error("Não foi possível abrir o banco de dados");
-    return;
-  }
-  
   char buff[255];
   sprintf(buff, "UPDATE %s set %s = '%s' where unity=%d", __table.c_str(), __column.c_str(), __value.c_str(), id);
 
-  nontransaction N(C);
   N.exec(buff);
-  log.Info("UPDATE realizado");
-
-  C.disconnect(); 
 }
 
 void insert(const std::string &__table, const std::string &__column, int value, int id)
 {
-  Log log;
-
-  log.SetLevel(log.LogLevelError);
-
-  connection C(DB);
-
-  if (C.is_open()){
-    log.Info("Banco de dados aberto com sucesso");
-  }
-  else {
-    log.Error("Não foi possível abrir o banco de dados");
-    return;
-  }
-  
   char buff[100];
   sprintf(buff, "INSERT INTO %s (ID, %s)VALUES (%d, %d);", __table.c_str(), __column.c_str(), id, value);
   
-  work W(C);
-  W.exec(buff);
-  W.commit();
-  log.Info("INSERT realizado");
+  N.exec(buff);
+}
 
-  C.disconnect(); 
+void updateTime(const std::string &__table, int id)
+{
+  char buff[100];
+  sprintf(buff, "UPDATE %s set last_com=now() where unity=%d", __table.c_str(), id);
+
+  N.exec(buff);
+}
+
+void updateNULL(const std::string &__table, int id)
+{
+  updatechar(TABLE, "next_fase", " ", id);
+  for(int i = 1; i < 17; i++)
+  {
+    char faseBuff[6];
+    sprintf(faseBuff, "fase%d", i);
+    update(TABLE, faseBuff, 1, id);
+  }
+
+  for(int i = 1; i < 17; i++)
+  {
+    char faseBuff[7];
+    sprintf(faseBuff, "fasep%d", i);
+    update(TABLE, faseBuff, 1, id);
+  }
+
+  for(int i = 1; i < 17; i++)
+  {
+    char faseBuff[15];
+    sprintf(faseBuff, "overlap%d", i);
+    update(TABLE, faseBuff, 1, unity);
+  }
+
+  update(TABLE, "tp_ciclo", 0, id);
+  update(TABLE, "tp_sync", 0, id);
 }
 
 void getPhases(const std::string &__table)
 {
-  Log log;
 
-  log.SetLevel(log.LogLevelError);
-
-  connection C(DB);
-
-  if (C.is_open()){
-    log.Info("Banco de dados aberto com sucesso");
-  }
-  else {
-    log.Error("Não foi possível abrir o banco de dados");
-    return;
-  }
-  
   char buff[100];
   sprintf(buff, "SELECT * from %s", __table.c_str());
-  
-  nontransaction N(C);
 
   result R( N.exec( buff ));
 
   for(result::const_iterator c = R.begin(); c != R.end(); ++c)
   {
+    greenInt = 0;
+    yellowInt = 0;
+    redInt = 0;
+    cycleTimer = 0;
+    syncTimer = 0;
+    nextFaseInt = 0;
+    pedestrianInt = 0;
+
+    overlapGreenInt = 0;
+    overlapYellowInt = 0;
+    overlapRedInt = 0;
+
+    overlapPedGreenInt = 0;
+    overlapPedYellowInt = 0;
+    overlapPedRedInt = 0;
+    
     semex = c[1].as<bool>();
 
     if(semex)
@@ -226,64 +179,104 @@ void getPhases(const std::string &__table)
 
       char ipS[30];
       char ubuff[100];
-      sprintf(ipS, "192.168.%d.23:%d", unity, 161);
-
-      greenInt  =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.4.1", ipS);
-      if(!greenInt)
-        LogErr(TABLE, unity);
+      if(unity < 255)
+        sprintf(ipS, "192.168.%d.23:%d", unity, 161);
       else
       {
-        sprintf(ubuff, "UPDATE %s set STATUS_MONIT = 0 where unity=%d", TABLE, unity);
-        N.exec(ubuff);
+        updateNULL(TABLE, unity);
+        continue;
+      }
+
+      greenInt =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.4.1", ipS);
+      if(greenInt < 0)
+      {
+        updateNULL(TABLE, unity);
+        continue;
+      }
+        
+      yellowInt =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.3.1", ipS);
+      if(yellowInt < 0)
+      {
+        updateNULL(TABLE, unity);
+        continue;
+      }
+
+      redInt =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.2.1", ipS);
+      if(redInt < 0)
+      {
+        updateNULL(TABLE, unity);
+        continue;
       }
       
-      yellowInt =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.3.1", ipS);
-      if(!yellowInt)
-        LogErr(TABLE, unity);
+      overlapRedInt =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.9.4.1.2.1", ipS);  
+      if(overlapRedInt < 0)
+      {
+        updateNULL(TABLE, unity);
+        continue;
+      }
       
-      redInt    =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.2.1", ipS);
-      if(!redInt)
-        LogErr(TABLE, unity);
-      
-      overlapRedInt    =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.9.4.1.2.1", ipS);
-      if(!overlapRedInt)
-        LogErr(TABLE, unity);      
-      
-      overlapYellowInt =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.9.4.1.3.1", ipS);
-      if(!overlapYellowInt)
-        LogErr(TABLE, unity);      
+      overlapYellowInt =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.9.4.1.3.1", ipS);   
+      if(overlapYellowInt < 0)
+      {
+        updateNULL(TABLE, unity);
+        continue;
+      }
       
       overlapGreenInt  =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.9.4.1.4.1", ipS);
-      if(!overlapGreenInt)
-        LogErr(TABLE, unity);
+      if(overlapGreenInt < 0)
+      {
+        updateNULL(TABLE, unity);
+        continue;
+      }
       
-      overlapPedRedInt    =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.9.4.1.2.1", ipS);
-      if(!overlapPedRedInt)
-        LogErr(TABLE, unity);
+      overlapPedRedInt = snmpGet(".1.3.6.1.4.1.1206.4.2.1.9.4.1.2.1", ipS);
+      if(overlapPedRedInt < 0)
+      {
+        updateNULL(TABLE, unity);
+        continue;
+      }
       
-      overlapPedYellowInt =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.9.4.1.3.1", ipS);
-      if(!overlapPedYellowInt)
-        LogErr(TABLE, unity);      
+      overlapPedYellowInt =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.9.4.1.3.1", ipS);  
+      if(overlapPedYellowInt < 0)
+      {
+        updateNULL(TABLE, unity);
+        continue;
+      }
       
       overlapPedGreenInt  =  snmpGet(".1.3.6.1.4.1.1206.4.2.1.9.4.1.4.1", ipS);      
-      if(!overlapPedGreenInt)
-        LogErr(TABLE, unity);
+      if(overlapPedGreenInt < 0)
+      {
+        updateNULL(TABLE, unity);
+        continue;
+      }
       
-      cycleTimer = snmpGet(".1.3.6.1.4.1.1206.4.2.1.4.12.0", ipS);
-      if(!cycleTimer)
-        LogErr(TABLE, unity);      
+      cycleTimer = snmpGet(".1.3.6.1.4.1.1206.4.2.1.4.12.0", ipS);      
+      if(cycleTimer < 0)
+      {
+        updateNULL(TABLE, unity);
+        continue;
+      }
       
-      syncTimer  = snmpGet(".1.3.6.1.4.1.1206.4.2.1.4.13.0", ipS);
-      if(!syncTimer)
-        LogErr(TABLE, unity);      
+      syncTimer  = snmpGet(".1.3.6.1.4.1.1206.4.2.1.4.13.0", ipS);     
+      if(syncTimer < 0)
+      {
+        updateNULL(TABLE, unity);
+        continue;
+      }
       
       nextFaseInt   = snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.11.1", ipS);
-      if(!nextFaseInt)
-        LogErr(TABLE, unity);
+      if(nextFaseInt < 0)
+      {
+        updateNULL(TABLE, unity);
+        continue;
+      }
       
       pedestrianInt = snmpGet(".1.3.6.1.4.1.1206.4.2.1.1.4.1.7.1", ipS);
-      if(!pedestrianInt)
-        LogErr(TABLE, unity);
+      if(pedestrianInt < 0)
+      {
+        updateNULL(TABLE, unity);
+        continue;
+      }
       
       string nextFaseString;
       for(int i = 0; i<=15; i++)
@@ -402,6 +395,7 @@ void getPhases(const std::string &__table)
         
       update(TABLE, "tp_ciclo", cycleTimer, unity);
       update(TABLE, "tp_sync", syncTimer, unity);
+      updateTime(TABLE, unity);
     }
   }
 }
